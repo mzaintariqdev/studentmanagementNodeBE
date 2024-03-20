@@ -2,8 +2,88 @@ import Teacher from '../models/teacher.js';
 
 // Get all teachers
 export const getAllTeachers = async (req, res) => {
+    let page =  req.query.page || 1;
+    page = parseInt(page);
+    let limit =  req.query.limit || 10;
+    limit = parseInt(limit);
+    const skip = (page -1)*limit;
+    
     try {
-        const teachers = await Teacher.find().populate('user'); // Populate user details
+        const teachers = await Teacher.aggregate([
+            {
+                $lookup: {
+                    from: 'users',
+                    as: 'user',
+                    localField: 'user',
+                    foreignField: '_id'
+                }
+            },
+            {
+                $lookup: {
+                    from: 'subjects',
+                    as: 'subjects',
+                    localField: 'subjects',
+                    foreignField: '_id'
+                }
+            },
+            {
+                $lookup: {
+                    from: 'classes',
+                    as: 'classes',
+                    localField: 'classes',
+                    foreignField: '_id'
+                }
+            },
+            {
+                $addFields: {
+                    name: { $first: "$user.name" },
+                    email: { $first: "$user.email" },
+                    classes: {
+                        $cond: {
+                            if: { $gt: [{ $size: "$classes" }, 0] },
+                            then: {
+                                $map: {
+                                    input: "$classes",
+                                    as: "class",
+                                    in: { id: "$$class._id", name: "$$class.name" }
+                                }
+                            },
+                            else: []
+                        }
+                    },
+                    subjects: {
+                        $cond: {
+                            if: { $gt: [{ $size: "$subjects" }, 0] },
+                            then: {
+                                $map: {
+                                    input: "$subjects",
+                                    as: "subject",
+                                    in: { id: "$$subject._id", name: "$$subject.name" }
+                                }
+                            },
+                            else: []
+                        }
+                    }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    id: "$_id",
+                    name: "$name",
+                    email: "$email",
+                    classes: 1,
+                    subjects: 1
+                }
+            },
+                {
+                $skip: skip,
+              },
+              {
+                $limit: limit,
+              }
+        ]);
+        
         res.json(teachers);
     } catch (error) {
         console.error('Error in getting teachers:', error);

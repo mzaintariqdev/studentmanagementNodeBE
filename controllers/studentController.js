@@ -1,14 +1,56 @@
+import Class from '../models/class.js';
 import Student from '../models/student.js';
 
 // Get all students
 export const getAllStudents = async (req, res) => {
+    let page =  req.query.page || 1;
+    page = parseInt(page);
+    let limit =  req.query.limit || 10;
+    limit = parseInt(limit);
+    const skip = (page -1)*limit;
+
     try {
         // Check user role
         if (req.user.role !== 'admin') {
             return res.status(403).json({ message: 'Unauthorized' });
         }
 
-        const students = await Student.find().populate('class');
+        const students = await Student.aggregate([
+            {
+                $sort: {
+                    name: 1
+                }
+            },
+            {
+                $lookup: {
+                    from: 'classes',
+                    localField: 'class',
+                    foreignField: '_id',
+                    as: 'class',
+                }
+            },
+            {
+                $addFields: {
+                    class: { $arrayElemAt: ["$class", 0] }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    id: '$id',
+                    name: "$name",
+                    age: "$age",
+                    class: "$class.name"
+                }
+            },
+            {
+                $skip: skip,
+            },
+            {
+                $limit: limit,
+            }
+        ]);
+        
         res.json(students);
     } catch (error) {
         console.error('Error in getting students:', error);
@@ -24,23 +66,74 @@ export const createStudent = async (req, res) => {
             return res.status(403).json({ message: 'Unauthorized' });
         }
 
-        const { name, age, class: classId } = req.body;
-        const newStudent = new Student({ name, age, class: classId });
+        const { name, age } = req.body;
+        const classID = req.body.class;
+        // Create the student
+        const newStudent = new Student({ name, age, class: classID });
         await newStudent.save();
+
+        // Update the corresponding Class model
+        if(classID) {
+            await Class.findByIdAndUpdate(
+                classID, // ID of the class
+                { $push: { students: newStudent._id } }, // Add the new student to the students array
+                { new: true } // Return the updated class document
+            );
+        }
+
         res.status(201).json({ message: 'Student created successfully' });
     } catch (error) {
         console.error('Error in creating student:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };
-
 // Get a student by its ID
 export const getStudentById = async (req, res) => {
     try {
         // No role check for reading student by ID
 
-        const student = await Student.findById(req.params.studentId).populate('class');
-        if (!student) {
+        const student = await Student.aggregate([
+            {
+                $addFields: {
+                    _id: {
+                        $toString: "$_id",
+                    }
+                }
+            },
+            {
+                $match: {
+                    _id:  req.params.studentId,
+                }
+            },
+            {
+                $addFields: {
+                    _id: {
+                        $toObjectId: "$_id",
+                    }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'classes',
+                    foreignField: "_id",
+                    localField: "class",
+                    as: 'class'
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    id: "$id",
+                    name: "$name",
+                    age: "$age",
+                    class: {
+                        $first: "$class.name"
+                    }
+                }
+            }
+        ]);
+        console.log(student)
+        if (!student || student.length === 0) {
             return res.status(404).json({ message: 'Student not found' });
         }
         res.json(student);

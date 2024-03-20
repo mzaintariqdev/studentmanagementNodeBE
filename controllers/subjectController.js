@@ -1,9 +1,61 @@
+import mongoose from 'mongoose';
 import Subject from '../models/subject.js';
+import Teacher from '../models/teacher.js';
 
 // Get all subjects
 export const getAllSubjects = async (req, res) => {
+    
+  let page =  req.query.page || 1;
+  page = parseInt(page);
+  let limit =  req.query.limit || 10;
+  limit = parseInt(limit);
+  const skip = (page -1)*limit;
+  
     try {
-        const subjects = await Subject.find().populate('teacher'); // Populate teacher details
+        const subjects = await Subject.aggregate([
+            {
+                $sort: {
+                    subjectName: 1,
+                }
+            },
+            {
+                $lookup: {
+                    from: 'teachers',
+                    localField: 'teacher',
+                    foreignField: '_id',
+                    as: 'teacherDetail'
+                }
+            },
+            {
+                $lookup: {
+                    from: "users",
+                    localField: "teacherDetail.user",
+                    foreignField: "_id",
+                    as: "teacherData"
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    id: "$_id",
+                    subjectName: "$name",
+                    teacherName: {
+                        $cond: {
+                            if: { $eq: [{ $size: "$teacherDetail" }, 0] }, // Check if teacherDetail is empty
+                            then: null,
+                            else: { $arrayElemAt: ["$teacherData.name", 0] }
+                        }
+                    }
+                }
+            },
+            {
+                $skip: skip,
+              },
+              {
+                $limit: limit,
+              }
+        ]);
+
         res.json(subjects);
     } catch (error) {
         console.error('Error in getting subjects:', error);
@@ -19,9 +71,16 @@ export const createSubject = async (req, res) => {
             return res.status(403).json({ message: 'Unauthorized' });
         }
 
-        const { name, teacher: teacherId } = req.body;
-        const newSubject = new Subject({ name, teacher: teacherId });
+        const { name, teacher } = req.body;
+        const newSubject = new Subject({ name, teacher });
         await newSubject.save();
+        if(teacher){
+            await Teacher.findByIdAndUpdate(
+                teacher, // ID of the class
+                { $push: { subjects: newSubject._id } }, // Add the new student to the subject array
+                { new: true } // Return the updated class document
+            );
+        }
         res.status(201).json({ message: 'Subject created successfully' });
     } catch (error) {
         console.error('Error in creating subject:', error);
@@ -32,8 +91,48 @@ export const createSubject = async (req, res) => {
 // Get a subject by its ID
 export const getSubjectById = async (req, res) => {
     try {
-        const subject = await Subject.findById(req.params.subjectId).populate('teacher'); // Populate teacher details
-        if (!subject) {
+        console.log(req.params.subjectId)
+        const subjectId = new mongoose.Types.ObjectId(req.params.subjectId);
+        const subject = await Subject.aggregate([
+            {
+                $match: {
+                    _id: subjectId // Match against the converted ObjectId
+                }
+            },
+            {
+                $lookup: {
+                    from : 'teachers',
+                    as: 'teacherDetail',
+                    localField: 'teacher',
+                    foreignField: '_id',
+
+                }
+            },
+            {
+                $unwind: "$teacherDetail" // Unwind the teacherDetail array
+              },
+              {
+                $lookup: {
+                  from: "users", // Assuming your users collection is named "users"
+                  localField: "teacherDetail.user",
+                  foreignField: "_id",
+                  as: "teacherData" // This will contain the matching user data
+                }
+              },
+              {
+                $unwind: "$teacherData" // Unwind the teacherData array
+              },
+              {
+                $project: {
+                  _id: 0,  
+                  id: "$_id",
+                  subjectName: "$name",
+                  teacherName: "$teacherData.name" // Assuming the teacher's name is stored in the "name" field of the users collection
+                }
+              }
+        ]);
+
+        if (!subject || subject.length === 0) {
             return res.status(404).json({ message: 'Subject not found' });
         }
         res.json(subject);

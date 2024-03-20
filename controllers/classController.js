@@ -1,4 +1,5 @@
 import Class from '../models/class.js';
+import Teacher from '../models/teacher.js';
 
 // Get all classes
 export const getAllClasses = async (req, res) => {
@@ -28,6 +29,16 @@ export const createClass = async (req, res) => {
         const { name, subjects, students, teachers } = req.body;
         const newClass = new Class({ name, subjects, students, teachers });
         await newClass.save();
+        // If teachers are provided, update the class of all mentioned teachers
+        if (teachers && teachers.length > 0) {
+            await Promise.all(teachers.map(async (teacherId) => {
+                await Teacher.findByIdAndUpdate(
+                    teacherId,
+                    { classes: newClass._id },
+                    { new: true }
+                );
+            }));
+        }
         res.status(201).json({ message: 'Class created successfully' });
     } catch (error) {
         console.error('Error in creating class:', error);

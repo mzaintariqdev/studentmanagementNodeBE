@@ -5,6 +5,8 @@ import {
   loginUser,
   registerUser,
   resetPassword,
+  resetPasswordByLink,
+  resetPasswordEmailLink,
   updateUser
 } from '../controllers/userController.js';
 
@@ -15,6 +17,8 @@ const userRouter = express.Router();
 userRouter.post('/register', registerUser);
 userRouter.post('/login', loginUser);
 userRouter.post('/reset-password', resetPassword);
+userRouter.post('/reset-password/:token', resetPasswordByLink);
+userRouter.post('/reset-password-link', resetPasswordEmailLink);
 userRouter.get('/:userId', getUserById);
 userRouter.put('/:userId', updateUser);
 userRouter.delete('/:userId', deleteUser);

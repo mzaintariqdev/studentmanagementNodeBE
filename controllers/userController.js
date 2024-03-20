@@ -3,6 +3,8 @@ import jwtConfig from '../configs/jwt.js';
 import User from '../models/user.js';
 import jwt from 'jsonwebtoken';
 import Teacher from '../models/teacher.js';
+import { generateResetToken, generateResetTokenExpiration } from '../utils/index.js';
+import { sendPasswordResetEmail } from '../email/sendPasswordResetEmail.js';
 
 // Register a new user
 export const registerUser = async (req, res) => {
@@ -176,3 +178,70 @@ export const getUserById = async (req, res) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
+
+// resetPassword by email link 
+
+export const resetPasswordEmailLink = async (req, res) => {
+    const { email } = req.body;
+
+    try {
+      // Check if the user exists in the database
+      const user = await User.findOne({ email });
+  
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+  
+      // Generate a unique reset token and its expiration date
+      const resetToken = generateResetToken();
+      const resetTokenExpiration = generateResetTokenExpiration();
+  
+      // Update the user's resetToken and resetTokenExpiration fields
+      user.resetToken = resetToken;
+      user.resetTokenExpiry = resetTokenExpiration;
+      await user.save();
+  
+      // Send the reset password email
+      sendPasswordResetEmail(user.email, resetToken);
+  
+        // Return success response
+        res.status(201).json({ message: 'Reset password email sent successfully' });
+    } catch (error) {
+      console.error('Error resetting password:', error);
+      res.status(500).json({ error: 'An error occurred while resetting the password' });
+    }
+  };
+
+  export const resetPasswordByLink = async (req, res) => {
+    const { token } = req.params;
+    const { password } = req.body;
+    try {
+      // Find the user by reset token
+      const user = await User.findOne({ resetToken: token });
+      if (!user) {
+        return res.status(404).json({ error: 'Invalid or expired reset token' });
+      }
+  
+      // Check if the reset token is still valid
+      if (user.resetPasswordExpiration < new Date()) {
+        return res.status(400).json({ error: 'Reset token has expired' });
+      }
+  
+      // Hash the new password
+      const hashedPassword = await bcrypt.hash(password, 10);
+  
+      // Update the user's password and reset token fields
+      user.password = hashedPassword;
+      user.resetToken = null;
+      user.resetTokenExpiry = null;
+      await user.save();
+  
+      // Return success response
+      res.status(201).json({ message: 'Password reset successfully' });
+    } catch (error) {
+      console.error('Error resetting password:', error);
+      res.status(500).json({ error: 'An error occurred while resetting the password' });
+    }
+  };
+  
