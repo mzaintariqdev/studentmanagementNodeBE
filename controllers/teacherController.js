@@ -112,7 +112,97 @@ export const createTeacher = async (req, res) => {
 // Get a teacher by their ID
 export const getTeacherById = async (req, res) => {
     try {
-        const teacher = await Teacher.findById(req.params.teacherId).populate('user', 'name email'); // Populate user details
+        // const teacher = await Teacher.findById(req.params.teacherId).populate('user', 'name email'); // Populate user details
+        const teacher = await Teacher.aggregate([
+            {
+                $addFields: {
+                    _id: {
+                        $toString: "$_id"
+                    }
+                }
+            },
+            {
+                $match:{
+                    _id: req.params.teacherId
+                }
+            },
+            {
+                $addFields: {
+                    _id: {
+                        $toObjectId: "$_id",
+                    }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'users',
+                    as: 'user',
+                    localField: 'user',
+                    foreignField: '_id',
+                }
+            },
+            {
+                $addFields: {
+                    user: { $first: '$user' } // Extract user object from the array
+                }
+            },
+            {
+                $lookup: {
+                    from: 'subjects',
+                    as: 'subjects',
+                    localField: 'subjects',
+                    foreignField: '_id',
+                }
+            },
+            {
+                $lookup: {
+                    from: 'classes',
+                    as: 'classes',
+                    localField: 'classes',
+                    foreignField: '_id',
+                }
+            },
+            {
+                $addFields: {
+                    classes: {
+                        $cond: {
+                            if: { $gt: [{ $size: "$classes" }, 0] },
+                            then: {
+                                $map: {
+                                    input: "$classes",
+                                    as: "class",
+                                    in: { id: "$$class._id", name: "$$class.name" }
+                                }
+                            },
+                            else: []
+                        }
+                    },
+                    subjects: {
+                        $cond: {
+                            if: { $gt: [{ $size: "$subjects" }, 0] },
+                            then: {
+                                $map: {
+                                    input: "$subjects",
+                                    as: "subject",
+                                    in: { id: "$$subject._id", name: "$$subject.name" }
+                                }
+                            },
+                            else: []
+                        }
+                    }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    id: '$_id',
+                    name: '$user.name',
+                    email: '$user.email',
+                    subjects: 1,
+                    classes: 1
+                }
+            }
+        ]);
         if (!teacher) {
             return res.status(404).json({ message: 'Teacher not found' });
         }
